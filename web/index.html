@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sweep-craft 饰品曲线扫掠建模</title>
+  <link rel="stylesheet" href="/style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/build/three.module.js",
+        "three/addons/": "/vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header>
+    <h1>Sweep-craft 曲线扫掠建模</h1>
+    <div class="header-actions">
+      <select id="projectSelect" title="选择项目"></select>
+      <button id="newProjectBtn">新建项目</button>
+      <button id="buildBtn" class="primary">重新生成</button>
+      <button id="adoptBtn">采用为版本</button>
+      <span class="spacer"></span>
+      <a class="dl" id="exportObj" href="#">OBJ</a>
+      <a class="dl" id="exportStl" href="#">STL</a>
+      <a class="dl" id="exportStlBin" href="#">二进制 STL</a>
+    </div>
+  </header>
+
+  <main>
+    <section id="viewport">
+      <div id="canvasHost"></div>
+      <div class="layer-toggles">
+        <label><input type="checkbox" id="layerMesh" checked /> 网格</label>
+        <label><input type="checkbox" id="layerPath" checked /> 路径</label>
+        <label><input type="checkbox" id="layerFrames" checked /> 移动框架</label>
+        <label><input type="checkbox" id="layerRings" /> 截面环</label>
+        <label><input type="checkbox" id="layerWire" /> 线框</label>
+      </div>
+      <div class="frame-mode">
+        框架模式
+        <select id="frameMode">
+          <option value="rmf">RMF 双反射（推荐）</option>
+          <option value="fixed-up">固定向上向量</option>
+        </select>
+      </div>
+    </section>
+
+    <aside id="side">
+      <div class="tabs">
+        <button class="tab active" data-tab="params">参数</button>
+        <button class="tab" data-tab="diagnostics">诊断 <span id="diagBadge" class="badge hidden">0</span></button>
+        <button class="tab" data-tab="versions">版本</button>
+      </div>
+
+      <div class="tabpanel" id="tab-params">
+        <fieldset>
+          <legend>空间路径（源曲线）</legend>
+          <label>类型
+            <select id="curveType">
+              <option value="line">直线</option>
+              <option value="circle">圆环</option>
+              <option value="helix">螺旋</option>
+              <option value="polyline">折线（尖角）</option>
+            </select>
+          </label>
+          <div id="curveParams"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>截面</legend>
+          <label>类型
+            <select id="profileType">
+              <option value="circle">圆形</option>
+              <option value="ellipse">椭圆</option>
+              <option value="polygon">正多边形</option>
+              <option value="rectangle">矩形</option>
+              <option value="roundedRect">圆角矩形</option>
+              <option value="ribbon">带状（薄实体）</option>
+            </select>
+          </label>
+          <div id="profileParams"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>尺寸变化关键帧（弧长比例 u）</legend>
+          <table id="scaleTable">
+            <thead><tr><th>u</th><th>su</th><th>sv</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <button id="addKeyframe">+ 关键帧</button>
+        </fieldset>
+
+        <fieldset>
+          <legend>采样与接头</legend>
+          <label>弦高误差 <input type="number" id="chordTolerance" step="0.001" min="0.0001" /></label>
+          <label>最大切向转角(°) <input type="number" id="maxTurnAngle" step="1" min="1" /></label>
+          <label>斜接上限 miterLimit <input type="number" id="miterLimit" step="0.1" min="1" /></label>
+          <label>斜面回退偏移 <input type="number" id="bevelOffset" step="0.05" min="0.05" max="0.9" /></label>
+        </fieldset>
+
+        <p class="note">参数编辑只作用于工作草稿；源曲线定义始终保留，点“采用为版本”后生成不可变快照。</p>
+      </div>
+
+      <div class="tabpanel hidden" id="tab-diagnostics">
+        <div id="reportSummary"></div>
+        <h4>错误</h4>
+        <ul id="errorList" class="diag errors"></ul>
+        <h4>警告</h4>
+        <ul id="warningList" class="diag warnings"></ul>
+        <p class="disclaimer" id="disclaimer"></p>
+      </div>
+
+      <div class="tabpanel hidden" id="tab-versions">
+        <p class="note">源曲线（不可编辑快照）：</p>
+        <pre id="sourceCurveView" class="json"></pre>
+        <h4>已采用版本</h4>
+        <ul id="versionList" class="versions"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

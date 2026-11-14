@@ -1,0 +1,15 @@
+{
+  "name": "sweep-craft",
+  "version": "1.0.0",
+  "description": "Jewelry curve sweep modeling tool: adaptive path sampling, explainable moving frames, tube/ribbon sweep mesh with diagnostics and export.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/",
+    "start": "node src/server/server.js",
+    "demo": "node src/cli/demo.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.169.0"
+  }
+}
