@@ -8,11 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { runSweep } from '../core/pipeline.js';
 import { createProject, updateDraft, adoptVersion, rollback, ProjectStore } from '../core/project.js';
 import { toOBJ, toSTLAscii, toSTLBinary } from '../core/exporter.js';
-
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const root = join(__dirname, '..', '..');
 const webDir = join(root, 'web');
-const dataDir = join(root, 'data');
+// SWEEP_DATA_DIR lets tests and throwaway runs point persistence at a temp directory
+// instead of the repository's data/.
+const dataDir = process.env.SWEEP_DATA_DIR || join(root, 'data');
 const geomDir = join(dataDir, 'geometry');
 const store = new ProjectStore(await import('node:fs'), await import('node:path'), dataDir);
 
@@ -49,31 +50,10 @@ function readBody(req) {
 }
 
 // Serialize a build into compact geometry the browser can turn into three.js buffers.
+// The pipeline owns this shape; the server forwards it verbatim so rendering and export
+// read the same geometry object.
 function geometryPayload(result) {
-  const { mesh, sampled, frameResult, profile } = result;
-  return {
-    vertices: mesh.vertices,
-    faces: mesh.faces,
-    rings: mesh.rings.map((r) => ({
-      position: r.position,
-      n: r.frame.n,
-      b: r.frame.b,
-      t: r.frame.t,
-      su: r.su,
-      sv: r.sv,
-      kind: r.kind,
-      u: r.u,
-    })),
-    profile,
-    path: sampled.stations.map((s, i) => ({
-      position: s.position,
-      tangent: s.tangent,
-      n: frameResult.frames[i].n,
-      b: frameResult.frames[i].b,
-      corner: !!s.corner,
-    })),
-    closed: sampled.closed,
-  };
+  return result.geometry;
 }
 
 const server = createServer(async (req, res) => {

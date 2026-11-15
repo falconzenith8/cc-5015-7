@@ -1,5 +1,18 @@
-// Cross-section profiles: closed 2D polygons in the (N, B) frame plane,
-// plus size keyframes evaluated along arc-length fraction.
+// Section parameters: the closed 2D cross-section in the (N, B) frame plane, its
+// orientation state, size keyframes along arc-length fraction, and input diagnostics.
+//
+// Section contract (explicit, no hidden defaults):
+//   deriveSection(spec) -> {
+//     points,          // closed polygon, counter-clockwise in (x, y)
+//     count,           // vertex count m; rings are built with exactly m vertices
+//     orientation,     // { ccw, area } measured on the emitted points
+//     issues,          // invalid_point / duplicate_point / self_intersection
+//     evalScale,       // u -> { su, sv }; identity when no keyframes are authored
+//     scaleIssues,     // non-positive scale in [0, 1]
+//     state,           // { polygonClosed: true, winding: 'ccw' | 'cw' }
+//   }
+// Note: a section is always a closed polygon. The path's open/closed state is separate
+// and belongs to the sampler, not here — a closed path uses a closed section.
 
 // ---- Primitive profile generators (counter-clockwise in the (x, y) plane) ----
 
@@ -177,4 +190,33 @@ export function scaleIssues(evalScale, samples = 64) {
     }
   }
   return out;
+}
+
+// ---- Section derivation (the module contract) ----
+
+const IDENTITY_SCALE = () => ({ su: 1, sv: 1 });
+
+export function deriveSection(spec = {}) {
+  if (!spec || typeof spec !== 'object' || !spec.type) {
+    throw new TypeError('deriveSection: spec.type is required');
+  }
+  const points = createProfile(spec);
+  if (!Array.isArray(points) || points.length < 3) {
+    throw new TypeError(`deriveSection: profile "${spec.type}" must emit at least 3 points`);
+  }
+  const check = profileIssues(points);
+  const hasKeyframes = Array.isArray(spec.scaleKeyframes) && spec.scaleKeyframes.length > 0;
+  const evalScale = hasKeyframes
+    ? createScaleTrack(spec.scaleKeyframes, spec.scaleInterpolation || 'linear')
+    : IDENTITY_SCALE;
+  const scaleProblems = hasKeyframes ? scaleIssues(evalScale) : [];
+  return {
+    points,
+    count: points.length,
+    orientation: { ccw: check.ccw, area: check.area },
+    issues: check.issues,
+    evalScale,
+    scaleIssues: scaleProblems,
+    state: { polygonClosed: true, winding: check.ccw ? 'ccw' : 'cw' },
+  };
 }

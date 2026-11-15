@@ -345,11 +345,15 @@ function renderReport(report) {
   state.report = report;
   const sum = document.getElementById('reportSummary');
   const t = report.topology;
+  const edge = t.edge;
+  const orient = report.section?.orientation;
+  const winding = orient ? (Math.abs(orient.area) <= 1e-12 ? '退化' : (orient.ccw ? '逆时针' : '顺时针')) : '未报告';
   sum.innerHTML = `<div class="kv">
     <b>采样站</b><span>${report.sampling.stationCount}（尖角 ${report.sampling.cornerCount}）</span>
     <b>环 / 顶点 / 面</b><span>${report.mesh.ringCount} / ${report.mesh.vertexCount} / ${report.mesh.faceCount}</span>
     <b>闭合</b><span>${report.mesh.closed ? '是（单接缝 u=0）' : '否（双端盖）'}</span>
-    <b>水密</b><span class="${t.watertight ? 'ok-text' : 'err-text'}">${t.watertight ? '是' : `否（${t.boundaryEdges.length} 条边界边）`}</span>
+    <b>边连接</b><span class="${edge.coherent ? 'ok-text' : 'warn-text'}">${edge.edgeCount} 边，边界 ${edge.boundary}，非流形 ${edge.nonManifold}，绕向一致 ${edge.consistent}/${edge.sharedTwice}</span>
+    <b>截面朝向</b><span>${winding}（面积 ${orient ? orient.area.toFixed(5) : '—'}）</span>
     <b>框架</b><span>${report.frameMode}${report.twistCorrection ? '，扭转均布修正 ' + report.twistCorrection.totalAngle.toFixed(4) + ' rad' : ''}</span>
     <b>面规则</b><span>${report.mesh.faceRule}</span>
     <b>端盖规则</b><span>${report.mesh.capRule}</span>
@@ -384,12 +388,54 @@ function renderReport(report) {
 async function build() {
   const spec = collectSpec();
   if (!state.project) throw new Error('no project open');
-  // Preview arbitrary form parameters without mutating the saved draft.
+  // Preview arbitrary form parameters without mutating the saved draft. The same pipeline
+  // result feeds this viewport and the export links, so the mesh you see is the mesh
+  // exported. Kernel failures are rethrown here so the button can report them.
   const { report, geometry } = await api(`/api/projects/${state.project.id}/build-custom`, 'POST', spec);
   state.geometry = geometry;
   renderReport(report);
   frameScene();
   return { report, geometry };
+}
+
+// Drive the build from the kernel and route failures back to the curve-sweep UI:
+// the kernel error text lands in the diagnostics panel and the badge flips to error.
+const buildStatusEl = document.getElementById('buildStatus');
+function setBuildStatus(message, isError) {
+  buildStatusEl.textContent = message || '';
+  buildStatusEl.classList.toggle('err-text', !!isError);
+  buildStatusEl.classList.toggle('hidden', !message);
+}
+
+async function runBuild({ persistDraft = false } = {}) {
+  if (!state.project) {
+    setBuildStatus('请先新建项目', true);
+    return null;
+  }
+  setBuildStatus('正在生成…', false);
+  try {
+    if (persistDraft) {
+      await api(`/api/projects/${state.project.id}/draft`, 'PUT', collectSpec());
+    }
+    const result = await build();
+    const { errors, warnings } = result.report;
+    setBuildStatus(`生成完成：${errors.length} 错 / ${warnings.length} 警`, errors.length > 0);
+    return result;
+  } catch (err) {
+    // Kernel failure: show it in the diagnostics list, not only the console.
+    const errUl = document.getElementById('errorList');
+    errUl.innerHTML = '';
+    const li = document.createElement('li');
+    li.className = 'error';
+    li.innerHTML = `<b>build_failed</b><span class="meta">${String(err && err.message || err)}</span>`;
+    errUl.appendChild(li);
+    const badge = document.getElementById('diagBadge');
+    badge.textContent = '!';
+    badge.classList.remove('hidden');
+    badge.classList.add('err');
+    setBuildStatus(`生成失败：${String(err && err.message || err)}`, true);
+    return null;
+  }
 }
 
 // ---------- Projects / versions ----------
@@ -412,7 +458,7 @@ async function openProject(id) {
   document.getElementById('sourceCurveView').textContent = JSON.stringify(state.project.sourceCurve, null, 2);
   renderVersions();
   updateExportLinks();
-  await build();
+  await runBuild();
 }
 
 function renderVersions() {
@@ -447,11 +493,7 @@ document.getElementById('newProjectBtn').addEventListener('click', async () => {
 });
 
 document.getElementById('buildBtn').addEventListener('click', async () => {
-  if (state.project) {
-    const spec = collectSpec();
-    await api(`/api/projects/${state.project.id}/draft`, 'PUT', spec);
-  }
-  await build();
+  await runBuild({ persistDraft: !!state.project });
 });
 
 document.getElementById('adoptBtn').addEventListener('click', async () => {
@@ -471,7 +513,26 @@ document.getElementById('projectSelect').addEventListener('change', (e) => openP
     const pt = document.getElementById('profileType').value;
     if (id === 'curveType') renderCurveParams(ct, DEFAULTS[ct]);
     if (id === 'profileType') renderProfileParams(pt, PROFILE_DEFAULTS[pt]);
+    scheduleLiveBuild();
   });
+});
+
+// Live re-generation while editing: changing the section type/parameters or dragging a
+// path point through the form rebuilds through the kernel, then the viewport refreshes
+// with the new surface plus its continuity/edge diagnostics. Debounced so typing a
+// number does not fire a build per keystroke.
+let liveBuildTimer = null;
+function scheduleLiveBuild() {
+  if (!state.project) return;
+  clearTimeout(liveBuildTimer);
+  liveBuildTimer = setTimeout(() => { runBuild(); }, 220);
+}
+for (const el of [curveParamsEl, profileParamsEl, scaleBody]) {
+  el.addEventListener('input', scheduleLiveBuild);
+  el.addEventListener('change', scheduleLiveBuild);
+}
+['frameMode', 'chordTolerance', 'maxTurnAngle', 'miterLimit', 'bevelOffset'].forEach((id) => {
+  document.getElementById(id).addEventListener('change', scheduleLiveBuild);
 });
 
 // Export links follow the open project; otherwise disabled.

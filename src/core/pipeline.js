@@ -1,68 +1,68 @@
 // End-to-end sweep pipeline and the unified diagnostic report.
+//
+// The pipeline is the single place where the four sweep modules are joined:
+//   curve.js     -> sampler.js (path sampling + explicit closed/degenerate state)
+//                -> frames.js  (layered frame evaluation state)
+//                -> section.js (section points, orientation, size track)
+//                -> sweep.js   (mesh, composed from topology.js connection primitives)
+// Rendering (web/app.js) and export (exporter.js) both consume `geometry` below, so
+// there is exactly one geometric result per build.
 import { createCurve } from './curve.js';
 import { sampleAdaptive } from './sampler.js';
-import { buildFrames } from './frames.js';
-import { createProfile, profileIssues, createScaleTrack, scaleIssues } from './profile.js';
+import { evaluateFrames, degenerateTangents } from './frames.js';
+import { deriveSection } from './section.js';
 import { buildSweep } from './sweep.js';
+import { meshTopologyContract } from './topology.js';
 import { findMeshSelfIntersections } from './collisions.js';
 
 export const DISCLAIMER =
   'This output is a geometric representation only. It is not certified for manufacture; ' +
   'wall thickness, tolerances, printability and jewelry manufacturability require separate validation.';
 
-function topologyCheck(mesh) {
-  const edgeCount = new Map();
-  const edgeKey = (a, b) => (a < b ? a + '>' + b : b + '>' + a);
-  for (const f of mesh.faces) {
-    for (let k = 0; k < 3; k++) {
-      const e = edgeKey(f[k], f[(k + 1) % 3]);
-      edgeCount.set(e, (edgeCount.get(e) || 0) + 1);
-    }
-  }
-  const boundary = [];
-  let nonManifold = 0;
-  for (const [e, c] of edgeCount) {
-    if (c === 1) boundary.push(e);
-    else if (c !== 2) nonManifold++;
-  }
-  return {
-    edgeCount: edgeCount.size,
-    boundaryEdges: boundary,
-    nonManifoldEdges: nonManifold,
-    watertight: boundary.length === 0 && nonManifold === 0,
-  };
-}
-
 export function runSweep(spec) {
   const errors = [];
   const warnings = [];
 
   // 1. Source curve (retained untouched in the project layer).
+  if (!spec || !spec.curve) throw new TypeError('runSweep: spec.curve is required');
   const curve = createCurve(spec.curve);
 
-  // 2. Adaptive sampling under curvature / error control.
+  // 2. Adaptive sampling under curvature / error control. The result carries explicit
+  //    interface state: whether the path is closed, its seam, and degenerate tangents.
   const sampled = sampleAdaptive(curve, spec.sampling || {});
   for (const w of sampled.warnings) warnings.push({ stage: 'sampling', ...w });
 
-  // 3. Explainable moving frame.
-  const frameResult = buildFrames(sampled, {
+  // 3. Explainable moving frame, from the sampler's explicit state. The layered entry
+  //    rejects a missing closed flag or degenerate list instead of defaulting them.
+  const frameState = {
+    closed: sampled.state.closed,
+    degenerate: degenerateTangents(sampled.stations),
+  };
+  const frameResult = evaluateFrames(sampled.stations, frameState, {
     frameMode: spec.frameMode || 'rmf',
     upVector: spec.upVector,
   });
   for (const d of frameResult.diagnostics) warnings.push({ stage: 'frames', ...d });
 
-  // 4. Profile and size track.
-  const profile = createProfile(spec.profile);
-  const pCheck = profileIssues(profile);
-  for (const issue of pCheck.issues) errors.push({ stage: 'profile', ...issue });
-  const evalScale = createScaleTrack(spec.scaleKeyframes || [{ u: 0, su: 1, sv: 1 }, { u: 1, su: 1, sv: 1 }],
-    spec.scaleInterpolation || 'linear');
-  for (const issue of scaleIssues(evalScale)) errors.push({ stage: 'scale', ...issue });
+  // 4. Section points, orientation and size track. Input issues are hard errors.
+  //    The size track belongs to the section contract: it scales the 2D points along u,
+  //    so keyframes are handed to the section module alongside the profile type.
+  const section = deriveSection({
+    ...(spec.profile || {}),
+    scaleKeyframes: spec.scaleKeyframes,
+    scaleInterpolation: spec.scaleInterpolation,
+  });
+  for (const issue of section.issues) errors.push({ stage: 'section', ...issue });
+  for (const issue of section.scaleIssues) errors.push({ stage: 'scale', ...issue });
 
-  // 5. Sweep surface.
-  const mesh = buildSweep(sampled, frameResult, profile, evalScale, {
-    miterLimit: spec.miterLimit,
-    bevelOffset: spec.bevelOffset,
+  // 5. Sweep surface from the module contract (closed comes from the path state).
+  const mesh = buildSweep({
+    stations: sampled.stations,
+    totalLength: sampled.totalLength,
+    closed: sampled.closed,
+    frames: frameResult,
+    section,
+    options: { miterLimit: spec.miterLimit, bevelOffset: spec.bevelOffset },
   });
   // Coalesce per-station bend warnings into one record per type with a worst case.
   const sweepByType = new Map();
@@ -79,9 +79,9 @@ export function runSweep(spec) {
   }
   for (const d of sweepByType.values()) warnings.push({ stage: 'sweep', ...d });
 
-  // 6. Exact mesh self-intersection scan (unless the profile was already invalid).
+  // 6. Exact mesh self-intersection scan (unless the section was already invalid).
   let intersections = { hits: [], truncated: false };
-  if (!pCheck.issues.some((i) => i.type === 'self_intersection')) {
+  if (!section.issues.some((i) => i.type === 'self_intersection')) {
     intersections = findMeshSelfIntersections(mesh);
     const reportedHits = intersections.hits.slice(0, 10);
     for (const h of reportedHits) {
@@ -105,15 +105,23 @@ export function runSweep(spec) {
     }
   }
 
-  // 7. Topology / watertightness.
-  const topology = topologyCheck(mesh);
-  if (!topology.watertight) {
-    warnings.push({ stage: 'topology', type: 'not_watertight', boundaryCount: topology.boundaryEdges.length });
+  // 7. Topology / watertightness, including winding coherence evidence.
+  const topology = meshTopologyContract(mesh);
+  if (!topology.edge.coherent) {
+    warnings.push({
+      stage: 'topology',
+      type: 'not_coherently_oriented',
+      boundaryCount: topology.edge.boundary,
+      inconsistentEdges: topology.edge.inconsistent,
+    });
   }
+  // 8. The single shared geometry result used by both rendering and export.
+  const geometry = geometryPayload({ sampled, frameResult, section, mesh });
 
   const report = {
     curve: spec.curve,
     frameMode: frameResult.mode,
+    frameState: frameResult.state,
     twistCorrection: frameResult.twistCorrection,
     sampling: {
       stationCount: sampled.stations.length,
@@ -121,6 +129,13 @@ export function runSweep(spec) {
       closed: sampled.closed,
       cornerCount: sampled.stations.filter((s) => s.corner).length,
       options: sampled.options,
+      state: sampled.state,
+    },
+    section: {
+      type: (spec.profile || {}).type ?? null,
+      count: section.count,
+      orientation: section.orientation,
+      state: section.state,
     },
     mesh: {
       ringCount: mesh.ringCount,
@@ -139,5 +154,37 @@ export function runSweep(spec) {
     disclaimer: DISCLAIMER,
   };
 
-  return { curve, sampled, frameResult, profile, evalScale, mesh, report };
+  return { curve, sampled, frameResult, section, mesh, geometry, report };
+}
+
+// Compact, plain-JSON geometry shared by the server (export), the browser (three.js)
+// and the payload tests. Keeping this in the pipeline means render and export can never
+// disagree about which mesh is current.
+export function geometryPayload(result) {
+  const { mesh, sampled, frameResult, section } = result;
+  return {
+    vertices: mesh.vertices,
+    faces: mesh.faces,
+    rings: mesh.rings.map((r) => ({
+      position: r.position,
+      n: r.frame.n,
+      b: r.frame.b,
+      t: r.frame.t,
+      su: r.su,
+      sv: r.sv,
+      kind: r.kind,
+      u: r.u,
+    })),
+    profile: section.points,
+    path: sampled.stations.map((s, i) => ({
+      position: s.position,
+      tangent: s.tangent,
+      n: frameResult.frames[i].n,
+      b: frameResult.frames[i].b,
+      corner: !!s.corner,
+    })),
+    closed: sampled.closed,
+    sectionState: section.state,
+    topology: meshTopologyContract(mesh),
+  };
 }

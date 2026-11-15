@@ -4,7 +4,7 @@
   "description": "Jewelry curve sweep modeling tool: adaptive path sampling, explainable moving frames, tube/ribbon sweep mesh with diagnostics and export.",
   "type": "module",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "start": "node src/server/server.js",
     "demo": "node src/cli/demo.js"
   },

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { LineCurve, CircleCurve, HelixCurve, PolylineCurve } from '../src/core/curve.js';
 import { sampleAdaptive } from '../src/core/sampler.js';
 import { buildFrames } from '../src/core/frames.js';
-import { createScaleTrack, circleProfile, profileIssues, ribbonProfile } from '../src/core/profile.js';
+import { createScaleTrack, circleProfile, profileIssues, ribbonProfile } from '../src/core/section.js';
 import { buildSweep, computeVertexNormals } from '../src/core/sweep.js';
 import { findMeshSelfIntersections } from '../src/core/collisions.js';
 import { toOBJ, toSTLAscii, toSTLBinary } from '../src/core/exporter.js';

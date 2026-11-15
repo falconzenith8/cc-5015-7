@@ -65,7 +65,9 @@ for (const { name, spec } of cases) {
   console.log(`\n=== ${name} ===`);
   console.log(`stations=${report.sampling.stationCount} corners=${report.sampling.cornerCount} ` +
     `rings=${report.mesh.ringCount} verts=${report.mesh.vertexCount} faces=${report.mesh.faceCount} ` +
-    `closed=${report.mesh.closed} watertight=${report.topology.watertight}`);
+    `closed=${report.mesh.closed} watertight=${report.topology.watertight} ` +
+    `coherent=${report.topology.edge.coherent} ` +
+    `section=${report.section.state.winding}(${report.section.orientation.area.toFixed(5)})`);
   if (report.twistCorrection) console.log(`twist correction: ${report.twistCorrection.totalAngle.toFixed(5)} rad distributed`);
   if (report.errors.length) console.log('ERRORS:', JSON.stringify(report.errors, null, 1));
   if (report.warnings.length) {

@@ -1,13 +1,18 @@
 // Sweep mesh generation: a continuous ring-based sweep surface.
 //
+// The builder is a composition of four independent stages, each with its own module:
+//   section.js   closed 2D section points, orientation, size keyframes
+//   sampler.js   path stations with explicit closed/degenerate interface state
+//   frames.js    moving frames (layered entry + legacy adapter)
+//   topology.js  ring emission, quad stitching, end caps, edge connectivity
+//
 // Every path station produces one cross-section ring whose vertices are placed by the
 // moving frame; consecutive rings are connected quad-by-quad. Sharp corners use a true
 // miter joint, falling back to a bevel when the miter limit is exceeded. Open paths are
 // closed with fan end caps; closed paths wrap to one seam. This is a real swept surface,
 // not a chain of independent cylinders.
-import { normalize, cross, dot, add, sub, scale, length, projectPerpendicular } from './vec3.js';
-
-const ringIndex = (ringCount, ring, j, m) => ring * m + (j % m);
+import { normalize, cross, dot, add, sub, scale, length } from './vec3.js';
+import { stitchRings, capRing, emitRingVertices, meshTopologyContract } from './topology.js';
 
 function miterData(tIn, tOut) {
   const cosHalf = Math.sqrt(Math.max(0, (1 + dot(tIn, tOut)) / 2));
@@ -26,68 +31,75 @@ function rotateFrameToTangent(frame, tNew) {
   return { t, n, b: normalize(cross(t, n)) };
 }
 
-function ringVertices(ring, profile) {
-  const m = profile.length;
-  const verts = new Array(m);
-  for (let j = 0; j < m; j++) {
-    const q = profile[j];
-    const x = q[0] * ring.su;
-    const y = q[1] * ring.sv;
-    verts[j] = add(ring.position, add(scale(ring.frame.n, x), scale(ring.frame.b, y)));
-  }
-  return verts;
+function projectPerpendicular(n, t) {
+  const d = dot(n, t);
+  return normalize([n[0] - d * t[0], n[1] - d * t[1], n[2] - d * t[2]]);
 }
 
-// Connect ring A (index ia) to ring B (index ib), which may be coincident (bevel/seam).
-// Winding is chosen so each triangle normal points away from the sweep axis.
-function connectRings(mesh, ia, ib, m, rings, profile) {
-  const A = rings[ia];
-  const B = rings[ib];
-  const dir = lengthSq(sub(B.position, A.position)) > 1e-16
-    ? normalize(sub(B.position, A.position))
-    : A.frame.t;
-  for (let j = 0; j < m; j++) {
-    const j2 = (j + 1) % m;
-    const a = ringIndex(0, ia, j, m);
-    const b = ringIndex(0, ia, j2, m);
-    const c = ringIndex(0, ib, j2, m);
-    const d = ringIndex(0, ib, j, m);
-    // Representative radial direction of this panel; orientation check vs. direction.
-    const radial = normalize(add(scale(A.frame.n, profile[j][0]), scale(A.frame.b, profile[j][1])));
-    const outwardFirst = dot(cross(sub(mesh.vertices[b], mesh.vertices[a]),
-      sub(mesh.vertices[c], mesh.vertices[a])), radial) >= 0;
-    if (outwardFirst && dot(dir, radial) >= -1e-9 || !outwardFirst && dot(dir, radial) < -1e-9) {
-      mesh.faces.push([a, b, c], [a, c, d]);
-    } else {
-      mesh.faces.push([a, c, b], [a, d, c]);
+// The sweep builder accepts either:
+//   buildSweep(stations, frames, points, evalScale, options)   legacy positional form
+//   buildSweep({ stations, frames, section, options })         module contract form
+// The section argument is normally the result of section.js deriveSection(); a raw
+// point array is accepted for legacy callers. Section orientation is reported, never
+// silently flipped: a clockwise section is surfaced as a warning, not repaired.
+export function buildSweep(input, frameResult, profilePoints, evalScale, options = {}) {
+  let sampled;
+  let frames;
+  let section;
+  let points;
+  let opt;
+  let scaleAt;
+  // Dispatch on the call shape, not on guessed fields.
+  //   buildSweep(stationsOrSampled, frameResult, points, evalScale, options)  legacy
+  //   buildSweep({ stations, closed, frames, section, options })            contract
+  // Legacy callers always pass the frame result as the second argument; the contract
+  // form never does. Anything else is rejected here instead of crashing on undefined.
+  const legacyCall = frameResult !== undefined;
+  if (!legacyCall && (!input || typeof input !== 'object' || Array.isArray(input))) {
+    throw new TypeError('buildSweep: contract form requires an object with stations/frames/section');
+  }
+  if (legacyCall) {
+    // Legacy positional call from existing curve-sweep callers: a station array or a
+    // sampler result, plus the frame result passed separately.
+    sampled = Array.isArray(input)
+      ? { stations: input, closed: !!frameResult.state?.closed }
+      : input;
+    frames = frameResult.frames;
+    points = profilePoints;
+    section = { points, orientation: null, state: { polygonClosed: true } };
+    scaleAt = evalScale;
+    opt = options;
+  } else {
+    if (!Array.isArray(input.stations)) {
+      throw new TypeError('buildSweep: contract requires a stations array');
     }
+    if (!input.section || !Array.isArray(input.section.points)) {
+      throw new TypeError('buildSweep: contract requires section.points (use deriveSection)');
+    }
+    if (!input.frames || !Array.isArray(input.frames.frames)) {
+      throw new TypeError('buildSweep: contract requires frames.frames');
+    }
+    if (typeof input.section.evalScale !== 'function') {
+      throw new TypeError('buildSweep: contract requires section.evalScale');
+    }
+    if (typeof input.closed !== 'boolean') {
+      throw new TypeError('buildSweep: contract requires closed to be an explicit boolean path state');
+    }
+    sampled = {
+      stations: input.stations,
+      totalLength: input.totalLength,
+      closed: input.closed,
+    };
+    frames = input.frames.frames;
+    section = input.section;
+    points = section.points;
+    scaleAt = section.evalScale;
+    opt = input.options || {};
   }
-}
-
-function lengthSq(a) {
-  return dot(a, a);
-}
-
-function capFaces(mesh, ringIndexValue, m, center, outwardNormal) {
-  const start = ringIndexValue * m;
-  const centerIndex = mesh.vertices.length;
-  mesh.vertices.push(center);
-  for (let j = 0; j < m; j++) {
-    const a = start + j;
-    const b = start + ((j + 1) % m);
-    const nrm = cross(sub(mesh.vertices[b], mesh.vertices[a]),
-      sub(mesh.vertices[centerIndex], mesh.vertices[a]));
-    if (dot(nrm, outwardNormal) >= 0) mesh.faces.push([centerIndex, a, b]);
-    else mesh.faces.push([centerIndex, b, a]);
-  }
-}
-
-export function buildSweep(sampled, frameResult, profile, evalScale, options = {}) {
-  const miterLimit = options.miterLimit ?? 2;
-  const bevelOffset = options.bevelOffset ?? 0.35; // fraction of local ring spacing
+  const miterLimit = opt.miterLimit ?? 2;
+  const bevelOffset = opt.bevelOffset ?? 0.35; // fraction of local ring spacing
   const stations = sampled.stations;
-  const frames = frameResult.frames;
-  const m = profile.length;
+  const m = points.length;
   const diagnostics = [];
   const rings = [];
 
@@ -107,7 +119,7 @@ export function buildSweep(sampled, frameResult, profile, evalScale, options = {
   // --- Walk stations, splitting corners into miter or bevel rings ---
   for (let i = 0; i < stations.length; i++) {
     const st = stations[i];
-    const { su, sv } = evalScale(stations.length > 1 ? st.s / Math.max(sampled.totalLength, 1e-12) : 0);
+    const { su, sv } = scaleAt(stations.length > 1 ? st.s / Math.max(sampled.totalLength, 1e-12) : 0);
     if (st.corner) {
       const md = miterData(st.tangentIn, st.tangent);
       if (md.reversed) {
@@ -153,32 +165,49 @@ export function buildSweep(sampled, frameResult, profile, evalScale, options = {
   // --- Emit vertices ---
   const mesh = { vertices: [], faces: [], ringCount: rings.length, profileCount: m, rings };
   for (const ring of rings) {
-    const verts = ringVertices(ring, profile);
-    for (const q of verts) mesh.vertices.push(q);
+    emitRingVertices(mesh, ring, points);
   }
 
   // --- Connect consecutive rings ---
   for (let i = 0; i < rings.length - 1; i++) {
-    connectRings(mesh, i, i + 1, m, rings, profile);
+    stitchRings(mesh, i, i + 1, m, points, rings);
   }
   if (sampled.closed) {
     // Closing seam: last ring wraps onto the first at the u=0 seam.
-    connectRings(mesh, rings.length - 1, 0, m, rings, profile);
+    stitchRings(mesh, rings.length - 1, 0, m, points, rings);
   } else {
     // End caps: fan triangles, normals outward along ±T.
     const first = rings[0];
     const last = rings[rings.length - 1];
-    capFaces(mesh, 0, m, first.position, scale(first.frame.t, -1));
-    capFaces(mesh, rings.length - 1, m, last.position, last.frame.t);
+    capRing(mesh, 0, m, first.position, scale(first.frame.t, -1));
+    capRing(mesh, rings.length - 1, m, last.position, last.frame.t);
+  }
+
+  // --- Section orientation interface state (never silently repaired) ---
+  const sectionArea = section.orientation ? section.orientation.area : null;
+  if (Number.isFinite(sectionArea) && Math.abs(sectionArea) <= 1e-12) {
+    diagnostics.push({
+      type: 'section_orientation',
+      winding: 'degenerate',
+      area: sectionArea,
+      message: 'Section encloses zero signed area; winding is undefined.',
+    });
+  } else if (section.orientation && section.orientation.ccw === false) {
+    diagnostics.push({
+      type: 'section_orientation',
+      winding: 'cw',
+      area: sectionArea,
+      message: 'Section points wind clockwise; surface triangle winding follows the authored order.',
+    });
   }
 
   // --- Bend penetration / tight-curvature diagnostics ---
   for (let i = 0; i < stations.length; i++) {
     const st = stations[i];
     if (!Number.isFinite(st.curvature) || st.curvature <= 1e-12) continue;
-    const { su, sv } = evalScale(st.s / Math.max(sampled.totalLength, 1e-12));
+    const { su, sv } = scaleAt(st.s / Math.max(sampled.totalLength, 1e-12));
     const radiusOfCurvature = 1 / st.curvature;
-    const maxHalf = Math.max(su, sv) * Math.max(...profile.map((p) => Math.hypot(p[0], p[1])));
+    const maxHalf = Math.max(su, sv) * Math.max(...points.map((p) => Math.hypot(p[0], p[1])));
     if (maxHalf >= radiusOfCurvature) {
       diagnostics.push({
         type: 'bend_self_intersection_risk',
@@ -195,6 +224,12 @@ export function buildSweep(sampled, frameResult, profile, evalScale, options = {
   mesh.seam = sampled.closed ? { ringIndex: 0, u: 0, rule: 'single seam at u=0, wrap-around quads' } : null;
   mesh.capRule = sampled.closed ? 'no caps (closed loop)' : 'fan caps at both ends, outward normals along -T and +T';
   mesh.faceRule = 'quads split into 2 triangles with outward-facing winding verified against the frame radial direction';
+  mesh.section = {
+    count: m,
+    winding: section.orientation ? (section.orientation.ccw ? 'ccw' : 'cw') : null,
+    orientationReported: !!section.orientation,
+  };
+  mesh.edge = meshTopologyContract(mesh).edge;
   return mesh;
 }
 

@@ -220,9 +220,42 @@ export function numericalCurvature(curve, u) {
   return length(sub(t1, t0)) / dl;
 }
 
+// Curve specs come in two explicit shapes:
+//   { type, params: {...} }        canonical (all new projects)
+//   { type, ...flatKeys }          legacy persisted projects (params inlined at the top)
+// Normalization only moves known fields; an unknown type or a missing field throws, so a
+// malformed curve cannot be papered over with defaults.
+const CURVE_PARAM_KEYS = {
+  line: ['a', 'b'],
+  circle: ['center', 'radius', 'e1', 'e2'],
+  helix: ['center', 'r', 'turns', 'rise', 'e1', 'e2', 'e3'],
+  polyline: ['points', 'closed'],
+};
+
+export function normalizeCurveSpec(spec) {
+  if (!spec || typeof spec !== 'object' || !spec.type) {
+    throw new TypeError('curve spec requires a type');
+  }
+  const keys = CURVE_PARAM_KEYS[spec.type];
+  if (!keys) throw new Error(`Unknown curve type: ${spec.type}`);
+  if (spec.params && typeof spec.params === 'object') {
+    return { type: spec.type, params: spec.params };
+  }
+  const params = {};
+  for (const key of keys) {
+    if (spec[key] === undefined) {
+      // `closed` is genuinely optional for polyline; everything else is required.
+      if (spec.type === 'polyline' && key === 'closed') { params.closed = false; continue; }
+      throw new Error(`curve spec "${spec.type}" is missing "${key}"`);
+    }
+    params[key] = spec[key];
+  }
+  return { type: spec.type, params };
+}
+
 export function createCurve(spec) {
-  const p = spec.params;
-  switch (spec.type) {
+  const { type, params: p } = normalizeCurveSpec(spec);
+  switch (type) {
     case 'line':
       return new LineCurve(p.a, p.b);
     case 'circle':
@@ -232,6 +265,6 @@ export function createCurve(spec) {
     case 'polyline':
       return new PolylineCurve(p.points, p.closed);
     default:
-      throw new Error(`Unknown curve type: ${spec.type}`);
+      throw new Error(`Unknown curve type: ${type}`);
   }
 }

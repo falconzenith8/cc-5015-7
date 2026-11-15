@@ -15,7 +15,7 @@ function payloadOf(spec) {
       position: ring.position, n: ring.frame.n, b: ring.frame.b, t: ring.frame.t,
       su: ring.su, sv: ring.sv, kind: ring.kind, u: ring.u,
     })),
-    profile: r.profile,
+    profile: r.section.points,
     path: r.sampled.stations.map((s, i) => ({
       position: s.position, tangent: s.tangent,
       n: r.frameResult.frames[i].n, b: r.frameResult.frames[i].b, corner: !!s.corner,

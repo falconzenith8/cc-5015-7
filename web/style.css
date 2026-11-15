@@ -29,6 +29,8 @@ header {
 header h1 { font-size: 16px; margin: 0; font-weight: 600; }
 .header-actions { display: flex; align-items: center; gap: 8px; margin-left: 12px; flex: 1; }
 .spacer { flex: 1; }
+.build-status { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.build-status.err-text { color: var(--err); }
 button, select, input {
   background: var(--panel-2);
   color: var(--text);

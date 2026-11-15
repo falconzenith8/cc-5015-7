@@ -131,10 +131,12 @@ export function sampleAdaptive(curve, options = {}) {
 
   // Closed curve: u=1 duplicates u=0 spatially; keep the seam at u=0 only.
   let closedSeam = null;
+  let duplicateSeamRemoved = false;
   if (curve.closed) {
     const last = stations[stations.length - 1];
     if (Math.abs(last.u - 1) < 1e-12 && distance(last.position, stations[0].position) < 1e-9) {
       stations.pop();
+      duplicateSeamRemoved = true;
     }
     closedSeam = { u: 0, index: 0 };
   }
@@ -172,5 +174,27 @@ export function sampleAdaptive(curve, options = {}) {
     options: opts,
     warnings: summaryWarnings,
     closedSeam,
+    // Explicit interface state for downstream stages. Closed paths expose the seam
+    // station and whether the final station was de-duplicated; degenerate tangents are
+    // listed here so frame evaluation receives them rather than inventing defaults.
+    state: {
+      closed: curve.closed,
+      seam: closedSeam,
+      duplicateSeamRemoved,
+      degenerate: degenerateStations(stations),
+    },
   };
+}
+
+export function degenerateStations(stations) {
+  const out = [];
+  for (let i = 0; i < stations.length; i++) {
+    const st = stations[i];
+    const t = st.tangent;
+    const magnitude = t ? Math.hypot(t[0], t[1], t[2]) : 0;
+    if (!(magnitude > 1e-12)) {
+      out.push({ index: i, u: st.u, reason: 'zero_tangent', magnitude });
+    }
+  }
+  return out;
 }
