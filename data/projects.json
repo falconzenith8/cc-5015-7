@@ -940,11 +940,272 @@
         "radius": 0.05,
         "segments": 12
       },
-      "frameMode": "rmf"
+      "frameMode": "fixed-up",
+      "scaleKeyframes": [],
+      "scaleInterpolation": "linear",
+      "sampling": {
+        "chordTolerance": 0.02,
+        "maxTurnAngle": 0.10471975511965977
+      },
+      "miterLimit": 2,
+      "bevelOffset": 0.35
     },
-    "versions": [],
+    "versions": [
+      {
+        "id": "v1",
+        "adoptedAt": "2026-11-15T05:43:36.301Z",
+        "spec": {
+          "curve": {
+            "type": "polyline",
+            "params": {
+              "points": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0.924,
+                  0.383,
+                  0.115
+                ],
+                [
+                  0.707,
+                  0.707,
+                  -0.2
+                ],
+                [
+                  0.383,
+                  0.924,
+                  0.283
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ],
+                [
+                  -0.383,
+                  0.924,
+                  -0.346
+                ],
+                [
+                  -0.707,
+                  0.707,
+                  0.346
+                ],
+                [
+                  -0.924,
+                  0.383,
+                  -0.283
+                ],
+                [
+                  -1,
+                  0,
+                  0
+                ],
+                [
+                  -0.924,
+                  -0.383,
+                  0.2
+                ],
+                [
+                  -0.707,
+                  -0.707,
+                  -0.115
+                ],
+                [
+                  -0.383,
+                  -0.924,
+                  0.038
+                ],
+                [
+                  0,
+                  -1,
+                  0
+                ],
+                [
+                  0.383,
+                  -0.924,
+                  -0.038
+                ],
+                [
+                  0.707,
+                  -0.707,
+                  0.115
+                ],
+                [
+                  0.924,
+                  -0.383,
+                  -0.2
+                ]
+              ],
+              "closed": true
+            }
+          },
+          "profile": {
+            "type": "circle",
+            "radius": 0.05,
+            "segments": 12
+          },
+          "frameMode": "fixed-up",
+          "scaleKeyframes": [],
+          "scaleInterpolation": "linear",
+          "sampling": {
+            "chordTolerance": 0.02,
+            "maxTurnAngle": 0.10471975511965977
+          },
+          "miterLimit": 2,
+          "bevelOffset": 0.35
+        },
+        "report": {
+          "curve": {
+            "type": "polyline",
+            "params": {
+              "points": [
+                [
+                  1,
+                  0,
+                  0
+                ],
+                [
+                  0.924,
+                  0.383,
+                  0.115
+                ],
+                [
+                  0.707,
+                  0.707,
+                  -0.2
+                ],
+                [
+                  0.383,
+                  0.924,
+                  0.283
+                ],
+                [
+                  0,
+                  1,
+                  0
+                ],
+                [
+                  -0.383,
+                  0.924,
+                  -0.346
+                ],
+                [
+                  -0.707,
+                  0.707,
+                  0.346
+                ],
+                [
+                  -0.924,
+                  0.383,
+                  -0.283
+                ],
+                [
+                  -1,
+                  0,
+                  0
+                ],
+                [
+                  -0.924,
+                  -0.383,
+                  0.2
+                ],
+                [
+                  -0.707,
+                  -0.707,
+                  -0.115
+                ],
+                [
+                  -0.383,
+                  -0.924,
+                  0.038
+                ],
+                [
+                  0,
+                  -1,
+                  0
+                ],
+                [
+                  0.383,
+                  -0.924,
+                  -0.038
+                ],
+                [
+                  0.707,
+                  -0.707,
+                  0.115
+                ],
+                [
+                  0.924,
+                  -0.383,
+                  -0.2
+                ]
+              ],
+              "closed": true
+            }
+          },
+          "frameMode": "fixed-up",
+          "twistCorrection": {
+            "totalAngle": -0.11585100327405734,
+            "distributed": true
+          },
+          "sampling": {
+            "stationCount": 18,
+            "totalLength": 8.052086775535377,
+            "closed": true,
+            "cornerCount": 15,
+            "options": {
+              "chordTolerance": 0.02,
+              "maxTurnAngle": 0.10471975511965977,
+              "minSegmentLength": 0.0008052086775535378,
+              "maxSegmentLength": 0.6710072312946148,
+              "maxDepth": 14
+            }
+          },
+          "mesh": {
+            "ringCount": 19,
+            "profileCount": 12,
+            "vertexCount": 228,
+            "faceCount": 456,
+            "closed": true,
+            "seam": {
+              "ringIndex": 0,
+              "u": 0,
+              "rule": "single seam at u=0, wrap-around quads"
+            },
+            "capRule": "no caps (closed loop)",
+            "faceRule": "quads split into 2 triangles with outward-facing winding verified against the frame radial direction"
+          },
+          "topology": {
+            "edgeCount": 684,
+            "boundaryEdges": [],
+            "nonManifoldEdges": 0,
+            "watertight": true
+          },
+          "errors": [],
+          "warnings": [
+            {
+              "stage": "sweep",
+              "type": "miter_limit",
+              "u": 0.4132302952964527,
+              "miter": 2.002483875883496,
+              "miterLimit": 2,
+              "turnAngleDeg": 120.0820470830774,
+              "message": "Miter factor 2.00 exceeds limit 2; bevel joint used.",
+              "count": 1
+            }
+          ],
+          "manufacturable": false,
+          "disclaimer": "This output is a geometric representation only. It is not certified for manufacture; wall thickness, tolerances, printability and jewelry manufacturability require separate validation."
+        },
+        "geometryRef": "proj_1_mwgipte5_v1.json"
+      }
+    ],
     "createdAt": "2026-11-14T14:45:41.261Z",
-    "updatedAt": "2026-11-14T14:45:41.261Z"
+    "updatedAt": "2026-11-15T05:43:36.301Z"
   },
   {
     "id": "proj_1_mwgisqbw",
